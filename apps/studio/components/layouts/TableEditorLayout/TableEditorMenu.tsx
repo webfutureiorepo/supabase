@@ -11,8 +11,10 @@ import { ButtonTooltip } from 'components/ui/ButtonTooltip'
 import InfiniteList from 'components/ui/InfiniteList'
 import SchemaSelector from 'components/ui/SchemaSelector'
 import { useSchemasQuery } from 'data/database/schemas-query'
+import { ENTITY_TYPE } from 'data/entity-types/entity-type-constants'
 import { useEntityTypesQuery } from 'data/entity-types/entity-types-infinite-query'
-import { useCheckPermissions, useLocalStorage } from 'hooks'
+import { useCheckPermissions } from 'hooks/misc/useCheckPermissions'
+import { useLocalStorage } from 'hooks/misc/useLocalStorage'
 import { EXCLUDED_SCHEMAS } from 'lib/constants/schemas'
 import { useTableEditorStateSnapshot } from 'state/table-editor'
 import {
@@ -36,7 +38,6 @@ import {
 } from 'ui-patterns/InnerSideMenu'
 import { useProjectContext } from '../ProjectLayout/ProjectContext'
 import EntityListItem from './EntityListItem'
-import { ENTITY_TYPE } from 'data/entity-types/entity-type-constants'
 
 const TableEditorMenu = () => {
   const router = useRouter()
@@ -67,7 +68,7 @@ const TableEditorMenu = () => {
       projectRef: project?.ref,
       connectionString: project?.connectionString,
       schema: snap.selectedSchemaName,
-      search: searchText || undefined,
+      search: searchText.trim() || undefined,
       sort,
       filterTypes: visibleTypes,
     },
@@ -162,7 +163,7 @@ const TableEditorMenu = () => {
               name="search-tables"
               aria-labelledby="Search tables"
               onChange={(e) => {
-                setSearchText(e.target.value.trim())
+                setSearchText(e.target.value)
               }}
               value={searchText}
               placeholder="Search tables..."

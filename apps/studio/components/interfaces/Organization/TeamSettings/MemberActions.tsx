@@ -4,17 +4,23 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 
 import { useParams } from 'common'
+import { ButtonTooltip } from 'components/ui/ButtonTooltip'
 import { useOrganizationCreateInvitationMutation } from 'data/organization-members/organization-invitation-create-mutation'
 import { useOrganizationDeleteInvitationMutation } from 'data/organization-members/organization-invitation-delete-mutation'
 import { useOrganizationRolesV2Query } from 'data/organization-members/organization-roles-query'
 import { useOrganizationMemberDeleteMutation } from 'data/organizations/organization-member-delete-mutation'
+import { useOrganizationMemberInviteCreateMutation } from 'data/organizations/organization-member-invite-create-mutation'
+import { useOrganizationMemberInviteDeleteMutation } from 'data/organizations/organization-member-invite-delete-mutation'
 import {
   useOrganizationMembersQuery,
   type OrganizationMember,
 } from 'data/organizations/organization-members-query'
 import { usePermissionsQuery } from 'data/permissions/permissions-query'
 import { useProjectsQuery } from 'data/projects/projects-query'
-import { useCheckPermissions, useIsFeatureEnabled, useSelectedOrganization } from 'hooks'
+import { useCheckPermissions } from 'hooks/misc/useCheckPermissions'
+import { useIsFeatureEnabled } from 'hooks/misc/useIsFeatureEnabled'
+import { useSelectedOrganization } from 'hooks/misc/useSelectedOrganization'
+import { useIsOptedIntoProjectLevelPermissions } from 'hooks/ui/useFlag'
 import { useProfile } from 'lib/profile'
 import {
   Button,
@@ -23,14 +29,11 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  TooltipContent_Shadcn_,
-  TooltipTrigger_Shadcn_,
-  Tooltip_Shadcn_,
 } from 'ui'
 import ConfirmationModal from 'ui-patterns/Dialogs/ConfirmationModal'
 import { useGetRolesManagementPermissions } from './TeamSettings.utils'
 import { UpdateRolesPanel } from './UpdateRolesPanel/UpdateRolesPanel'
-import { ButtonTooltip } from 'components/ui/ButtonTooltip'
+import { useOrgSubscriptionQuery } from 'data/subscriptions/org-subscription-query'
 
 interface MemberActionsProps {
   member: OrganizationMember
@@ -48,6 +51,7 @@ export const MemberActions = ({ member }: MemberActionsProps) => {
   const { data: allProjects } = useProjectsQuery()
   const { data: members } = useOrganizationMembersQuery({ slug })
   const { data: allRoles } = useOrganizationRolesV2Query({ slug })
+  const isOptedIntoProjectLevelPermissions = useIsOptedIntoProjectLevelPermissions(slug as string)
 
   const orgScopedRoles = allRoles?.org_scoped_roles ?? []
   const projectScopedRoles = allRoles?.project_scoped_roles ?? []
@@ -59,7 +63,7 @@ export const MemberActions = ({ member }: MemberActionsProps) => {
     orgScopedRoles.some((r) => r.id === userMemberData?.role_ids[0])
 
   const { rolesRemovable } = useGetRolesManagementPermissions(
-    selectedOrganization?.id,
+    selectedOrganization?.slug,
     orgScopedRoles.concat(projectScopedRoles),
     permissions ?? []
   )
@@ -92,9 +96,19 @@ export const MemberActions = ({ member }: MemberActionsProps) => {
         toast.error(`Failed to resend invitation: ${error.message}`)
       },
     })
+  const { mutate: inviteMemberOld, isLoading: isCreatingInviteOld } =
+    useOrganizationMemberInviteCreateMutation({
+      onSuccess: () => {
+        toast.success('Resent the invitation')
+      },
+      onError: (error) => {
+        toast.error(`Failed to resend the invidation: ${error.message}`)
+      },
+    })
 
   const { mutate: deleteInvitation, isLoading: isDeletingInvite } =
     useOrganizationDeleteInvitationMutation()
+  const { mutate: deleteInvitationOld } = useOrganizationMemberInviteDeleteMutation()
 
   const isLoading = isDeletingMember || isDeletingInvite || isCreatingInvite
 
@@ -111,28 +125,44 @@ export const MemberActions = ({ member }: MemberActionsProps) => {
     if (!slug) return console.error('Slug is required')
     if (!invitedId) return console.error('Member invited ID is required')
 
-    deleteInvitation(
-      { slug, id: invitedId, skipInvalidation: true },
-      {
-        onSuccess: () => {
-          if (!member.primary_email) return toast.error('Email is required')
-          const projectScopedRole = projectScopedRoles.find((role) => role.id === roleId)
-          if (projectScopedRole !== undefined) {
-            const projects = (projectScopedRole?.project_ids ?? [])
-              .map((id) => allProjects?.find((p) => p.id === id)?.ref)
-              .filter(Boolean) as string[]
-            inviteMember({
+    if (isOptedIntoProjectLevelPermissions) {
+      deleteInvitation(
+        { slug, id: invitedId, skipInvalidation: true },
+        {
+          onSuccess: () => {
+            if (!member.primary_email) return toast.error('Email is required')
+            const projectScopedRole = projectScopedRoles.find((role) => role.id === roleId)
+            if (projectScopedRole !== undefined) {
+              const projects = (projectScopedRole?.project_ids ?? [])
+                .map((id) => allProjects?.find((p) => p.id === id)?.ref)
+                .filter(Boolean) as string[]
+              inviteMember({
+                slug,
+                email: member.primary_email,
+                roleId: projectScopedRole.base_role_id,
+                projects,
+              })
+            } else {
+              inviteMember({ slug, email: member.primary_email, roleId })
+            }
+          },
+        }
+      )
+    } else {
+      deleteInvitationOld(
+        { slug, invitedId, invalidateDetail: false },
+        {
+          onSuccess: () => {
+            inviteMemberOld({
               slug,
-              email: member.primary_email,
-              roleId: projectScopedRole.base_role_id,
-              projects,
+              invitedEmail: member.primary_email!,
+              ownerId: invitedId,
+              roleId,
             })
-          } else {
-            inviteMember({ slug, email: member.primary_email, roleId })
-          }
-        },
-      }
-    )
+          },
+        }
+      )
+    }
   }
 
   const handleRevokeInvitation = (member: OrganizationMember) => {
@@ -140,14 +170,17 @@ export const MemberActions = ({ member }: MemberActionsProps) => {
     if (!slug) return console.error('Slug is required')
     if (!invitedId) return console.error('Member invited ID is required')
 
-    deleteInvitation(
-      { slug, id: invitedId },
-      {
-        onSuccess: () => {
-          toast.success('Successfully revoked the invitation.')
-        },
-      }
-    )
+    if (isOptedIntoProjectLevelPermissions) {
+      deleteInvitation(
+        { slug, id: invitedId },
+        { onSuccess: () => toast.success('Successfully revoked the invitation.') }
+      )
+    } else {
+      deleteInvitationOld(
+        { slug, invitedId },
+        { onSuccess: () => toast.success('Successfully revoked the invitation.') }
+      )
+    }
   }
 
   if (!canRemoveMember || (isPendingInviteAcceptance && !canResendInvite && !canRevokeInvite)) {
@@ -250,6 +283,7 @@ export const MemberActions = ({ member }: MemberActionsProps) => {
 
       <ConfirmationModal
         visible={isDeleteModalOpen}
+        loading={isDeletingMember}
         title="Confirm to remove"
         confirmLabel="Remove"
         onCancel={() => setIsDeleteModalOpen(false)}

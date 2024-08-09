@@ -1,8 +1,11 @@
 import * as Popover from '@radix-ui/react-popover'
 import { motion } from 'framer-motion'
-import { useLocalStorageQuery, useSelectedOrganization } from 'hooks'
-import { IS_PLATFORM, OPT_IN_TAGS } from 'lib/constants'
 import { PropsWithChildren, useEffect, useState } from 'react'
+
+import { useLocalStorageQuery } from 'hooks/misc/useLocalStorage'
+import { useOrgOptedIntoAi } from 'hooks/misc/useOrgOptedIntoAi'
+import { useSelectedOrganization } from 'hooks/misc/useSelectedOrganization'
+import { IS_PLATFORM } from 'lib/constants'
 import { Button, IconInfo } from 'ui'
 
 export interface AISchemaSuggestionPopoverProps {
@@ -16,7 +19,7 @@ const AISchemaSuggestionPopover = ({
   onClickSettings,
 }: PropsWithChildren<AISchemaSuggestionPopoverProps>) => {
   const selectedOrganization = useSelectedOrganization()
-  const isOptedInToAI = selectedOrganization?.opt_in_tags?.includes(OPT_IN_TAGS.AI_SQL) ?? false
+  const isOptedInToAI = useOrgOptedIntoAi()
   const [hasEnabledAISchema] = useLocalStorageQuery('supabase_sql-editor-ai-schema', true)
   const [isDelayComplete, setIsDelayComplete] = useState(false)
   const [aiQueryCount] = useLocalStorageQuery('supabase_sql-editor-ai-query-count', 0)
