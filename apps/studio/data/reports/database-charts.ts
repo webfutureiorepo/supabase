@@ -149,7 +149,7 @@ export const getReportAttributesV2: (
       showGrid: true,
       showMaxValue: true,
       YAxisProps: {
-        width: 50,
+        width: 55,
         tickFormatter: (value: any) => compactNumberFormatter(value),
       },
       defaultChartStyle: 'bar',
